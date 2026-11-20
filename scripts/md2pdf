@@ -1,0 +1,14 @@
+#!/bin/sh
+# md2pdf <input.md> [output.pdf | output-directory]
+#
+# Converts Markdown to PDF with MarkView's renderer (same output as
+# File > Export as PDF). Default output: ~/Downloads/<name>.pdf, never
+# overwriting. Prints the PDF path on success; exits non-zero on failure.
+#
+#   pdf=$(md2pdf notes.md) && sendphone "$pdf"
+MARKVIEW="/Applications/MarkView.app/Contents/MacOS/MarkView"
+if [ ! -x "$MARKVIEW" ]; then
+  echo "md2pdf: MarkView is not installed at /Applications/MarkView.app" >&2
+  exit 1
+fi
+exec "$MARKVIEW" --pdf "$@"

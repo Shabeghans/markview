@@ -95,12 +95,19 @@
     return mermaidLoading;
   }
 
+  var pendingDiagrams = 0;   // Mermaid renders in flight; see MV.isReady
+
   function renderMermaid(nodes) {
+    pendingDiagrams++;
     loadMermaid().then(function (mermaid) {
       var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
       return mermaid.run({ nodes: nodes, suppressErrors: true });
-    }).catch(function () {});
+    }).catch(function () {}).then(function () { pendingDiagrams--; });
+  }
+
+  function imagesLoaded() {
+    return Array.prototype.every.call(content.querySelectorAll('img'), function (img) { return img.complete; });
   }
 
   function enhance() {
@@ -226,6 +233,10 @@
       finder.index = -1;
       if (hasHighlights) { CSS.highlights.delete('mv-find'); CSS.highlights.delete('mv-find-current'); }
       return findState();
+    },
+    // True once the page, images and Mermaid diagrams are done (used before printing/PDF export).
+    isReady: function () {
+      return document.readyState === 'complete' && pendingDiagrams === 0 && imagesLoaded();
     },
     setTOC: function (show) {
       document.body.classList.toggle('toc-open', !!show);

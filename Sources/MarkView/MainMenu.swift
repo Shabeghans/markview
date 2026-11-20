@@ -74,6 +74,16 @@ enum MainMenu {
         view.addItem(withTitle: "Table of Contents",
                      action: #selector(DocumentWindowController.toggleTableOfContents(_:)),
                      keyEquivalent: "t").keyEquivalentModifierMask = [.command, .option]
+        let appearance = NSMenu(title: "Appearance")
+        view.addItem(withTitle: "Appearance", action: nil, keyEquivalent: "").submenu = appearance
+        for (title, mode, key) in [("Use System Setting", AppearanceMode.system, ""),
+                                   ("Light", .light, "l"),
+                                   ("Dark", .dark, "d")] {
+            let item = appearance.addItem(withTitle: title, action: #selector(AppDelegate.setAppearanceMode(_:)),
+                                          keyEquivalent: key)
+            item.keyEquivalentModifierMask = [.command, .control]
+            item.tag = mode.rawValue
+        }
         view.addItem(.separator())
         view.addItem(withTitle: "Actual Size", action: #selector(DocumentWindowController.actualSize(_:)), keyEquivalent: "0")
         view.addItem(withTitle: "Zoom In", action: #selector(DocumentWindowController.zoomIn(_:)), keyEquivalent: "+")

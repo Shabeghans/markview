@@ -29,7 +29,7 @@ final class MarkdownDocument: NSDocument {
         Data(text.utf8)
     }
 
-    private static func decode(_ data: Data) -> String {
+    static func decode(_ data: Data) -> String {
         if let s = String(data: data, encoding: .utf8) { return s }
         var converted: NSString?
         _ = NSString.stringEncoding(for: data, encodingOptions: nil, convertedString: &converted, usedLossyConversion: nil)

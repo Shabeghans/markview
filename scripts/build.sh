@@ -30,4 +30,7 @@ if [ "${1:-}" = "--install" ]; then
   "$LSREGISTER" -u "$PWD/$APP" >/dev/null 2>&1 || true
   "$LSREGISTER" -f /Applications/MarkView.app
   echo "Installed /Applications/MarkView.app"
+  mkdir -p "$HOME/bin"
+  install -m 755 scripts/md2pdf "$HOME/bin/md2pdf"
+  echo "Installed $HOME/bin/md2pdf"
 fi

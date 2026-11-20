@@ -15,6 +15,7 @@ private extension NSToolbarItem.Identifier {
     static let edit = NSToolbarItem.Identifier("edit")
     static let reload = NSToolbarItem.Identifier("reload")
     static let copyMarkdown = NSToolbarItem.Identifier("copyMarkdown")
+    static let appearance = NSToolbarItem.Identifier("appearance")
 }
 
 private enum Defaults {
@@ -33,6 +34,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     private let previewContainer: NSStackView
     private weak var copyButton: NSButton?
     private weak var editItem: NSToolbarItem?
+    private weak var appearanceItem: NSToolbarItem?
+    private var appearanceObservation: NSKeyValueObservation?
 
     private var pageLoaded = false
     private var previewIsStale = false
@@ -78,6 +81,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         findBar.onSearch = { [weak self] query in self?.runFind("MV.find(\(Self.jsonString(query)))") }
         findBar.onStep = { [weak self] step in self?.runFind("MV.findStep(\(step))") }
         findBar.onClose = { [weak self] in self?.hideFindBar() }
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.effectiveAppearanceDidChange() }
+        }
 
         windowFrameAutosaveName = "MarkViewDocument"
         window.delegate = self
@@ -85,7 +91,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
         webView.navigationDelegate = self
         configureEditor()
 
-        let toolbar = NSToolbar(identifier: "MarkViewToolbar")
+        let toolbar = NSToolbar(identifier: "MarkViewToolbar.v2")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -301,47 +307,23 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     @objc func exportPDF(_ sender: Any?) {
         guard let doc = markdownDocument else { return }
         let baseName = doc.fileURL?.deletingPathExtension().lastPathComponent ?? doc.displayName ?? "Untitled"
-        let url = Self.uniqueDownloadsURL(baseName: baseName)
-        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
-        info.jobDisposition = .save
-        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
-        runPrintJob(info: info, showPanels: false) {
+        let url = PDFSettings.uniqueDownloadsURL(baseName: baseName)
+        runPrintJob(info: PDFSettings.saveInfo(to: url), showPanels: false) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
-    }
-
-    /// ~/Downloads/<name>.pdf, or "<name> 2.pdf", "<name> 3.pdf"… if taken.
-    private static func uniqueDownloadsURL(baseName: String) -> URL {
-        let fm = FileManager.default
-        let downloads = fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        var url = downloads.appendingPathComponent(baseName + ".pdf")
-        var n = 2
-        while fm.fileExists(atPath: url.path) {
-            url = downloads.appendingPathComponent("\(baseName) \(n).pdf")
-            n += 1
-        }
-        return url
     }
 
     /// Prints the rendered preview (paginated). Always uses light colours so
     /// dark mode doesn't produce white text on white paper.
     private func runPrintJob(info: NSPrintInfo, showPanels: Bool, completion: (() -> Void)? = nil) {
         if isEditing { toggleEditMode(nil) }
-        info.topMargin = 40
-        info.bottomMargin = 40
-        info.leftMargin = 36
-        info.rightMargin = 36
-        info.isHorizontallyCentered = true
-        info.isVerticallyCentered = false
-        info.horizontalPagination = .fit
-        info.verticalPagination = .automatic
+        PDFSettings.configure(info)
 
         let savedAppearance = webView.appearance
         webView.appearance = NSAppearance(named: .aqua)
         renderInPlace { [weak self] in
-            // Give Mermaid a moment to redraw diagrams in the light theme.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Wait for Mermaid to redraw diagrams in the light theme.
+            self?.whenPageReady {
                 guard let self, let window = self.window else { return }
                 let op = self.webView.printOperation(with: info)
                 op.view?.frame = self.webView.bounds
@@ -358,6 +340,39 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
                             contextInfo: nil)
             }
         }
+    }
+
+    /// Calls `body` once images and Mermaid diagrams have finished (max ~10 s).
+    private func whenPageReady(polls: Int = 0, _ body: @escaping () -> Void) {
+        webView.evaluateJavaScript("MV.isReady()") { [weak self] result, _ in
+            if (result as? Bool) == true || polls > 100 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: body)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self?.whenPageReady(polls: polls + 1, body)
+                }
+            }
+        }
+    }
+
+    // MARK: - Appearance
+
+    @objc func toggleAppearance(_ sender: Any?) {
+        AppearanceSettings.toggle()
+    }
+
+    /// Re-render when light/dark changes so Mermaid diagrams pick the matching theme.
+    private func effectiveAppearanceDidChange() {
+        updateAppearanceItem()
+        if pageLoaded && printCompletion == nil { renderInPlace() }
+    }
+
+    private func updateAppearanceItem() {
+        let dark = AppearanceSettings.isDark
+        appearanceItem?.image = NSImage(systemSymbolName: dark ? "sun.max" : "moon",
+                                        accessibilityDescription: dark ? "Light mode" : "Dark mode")
+        appearanceItem?.label = dark ? "Light Mode" : "Dark Mode"
+        appearanceItem?.toolTip = dark ? "Switch to light mode" : "Switch to dark mode"
     }
 
     private var printCompletion: ((Bool) -> Void)?
@@ -458,11 +473,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
     // MARK: - NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toc, .edit, .flexibleSpace, .reload, .copyMarkdown]
+        [.toc, .edit, .flexibleSpace, .appearance, .reload, .copyMarkdown]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toc, .edit, .reload, .copyMarkdown, .flexibleSpace, .space]
+        [.toc, .edit, .appearance, .reload, .copyMarkdown, .flexibleSpace, .space]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
@@ -480,6 +495,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTo
             item.action = #selector(toggleEditMode(_:))
             editItem = item
             updateEditItem()
+        case .appearance:
+            item.action = #selector(toggleAppearance(_:))
+            appearanceItem = item
+            updateAppearanceItem()
         case .reload:
             item.label = "Reload"
             item.toolTip = "Reload the file from disk (⌘R)"
