@@ -1,0 +1,14 @@
+# SwiftPM build output and caches
+.build/
+.swiftpm/
+
+# App bundle, generated icon and other build products (see scripts/build.sh)
+build/
+
+# Xcode user state (if the package is opened in Xcode)
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
